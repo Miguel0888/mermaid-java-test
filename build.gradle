@@ -15,14 +15,21 @@ repositories {
 
 dependencies {
     implementation 'com.aresstack:mermaid-java:0.1.0-beta.1'
+    implementation 'com.fifesoft:rsyntaxtextarea:3.5.4'
 }
 
 application {
     mainClassName = 'com.aresstack.test.MermaidViewer'
 }
 
-// Alternativ: "gradlew runConsole" für die Konsolen-Variante
+// "gradlew runConsole" für die Konsolen-Variante
 task runConsole(type: JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.aresstack.test.Main'
+}
+
+// "gradlew runCoder" für den MermaidCoder
+task runCoder(type: JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.aresstack.test.MermaidCoder'
 }
