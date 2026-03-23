@@ -1,0 +1,28 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.aresstack.test'
+version = '0.0.1-SNAPSHOT'
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.aresstack:mermaid-java:0.1.0-beta.1'
+}
+
+application {
+    mainClassName = 'com.aresstack.test.MermaidViewer'
+}
+
+// Alternativ: "gradlew runConsole" für die Konsolen-Variante
+task runConsole(type: JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.aresstack.test.Main'
+}
