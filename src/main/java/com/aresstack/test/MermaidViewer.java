@@ -6,28 +6,43 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
- * Swing-Viewer für Mermaid-Diagramme mit Zoom (Mausrad) und Pan (Drag).
+ * Swing-Viewer fuer Mermaid-Diagramme mit Tabs, Zoom (Mausrad) und Pan (Drag).
  */
 public class MermaidViewer extends JFrame {
 
-    private BufferedImage image;
-    private double zoom = 1.0;
-    private int offsetX = 0, offsetY = 0;
-    private Point dragStart;
-
-    public MermaidViewer(String mermaidCode) {
+    public MermaidViewer(Map<String, String> diagrams) {
         super("Mermaid Viewer");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
-        setSize(900, 700);
+        setSize(1100, 800);
         setLocationRelativeTo(null);
 
-        // Mermaid → BufferedImage (Breite 2048px für gute Qualität)
-        System.out.println("Rendering Mermaid diagram...");
-        image = Mermaid.renderToImage(mermaidCode, 2048);
-        image = Mermaid.autoCrop(image);
-        System.out.println("Image size: " + image.getWidth() + " x " + image.getHeight());
+        JTabbedPane tabs = new JTabbedPane();
+
+        for (Map.Entry<String, String> entry : diagrams.entrySet()) {
+            String title = entry.getKey();
+            String code = entry.getValue();
+
+            System.out.println("Rendering: " + title + " ...");
+            BufferedImage img = Mermaid.renderToImage(code, 2048);
+            img = Mermaid.autoCrop(img);
+            System.out.println("  -> " + img.getWidth() + " x " + img.getHeight());
+
+            tabs.addTab(title, createDiagramPanel(img));
+        }
+
+        add(tabs, BorderLayout.CENTER);
+    }
+
+    private JPanel createDiagramPanel(BufferedImage image) {
+        JPanel wrapper = new JPanel(new BorderLayout());
+
+        double[] zoom = {1.0};
+        int[] offset = {0, 0};
+        Point[] dragStart = {null};
 
         JPanel canvas = new JPanel() {
             @Override
@@ -38,145 +53,220 @@ public class MermaidViewer extends JFrame {
                         RenderingHints.VALUE_INTERPOLATION_BILINEAR);
                 g2.setRenderingHint(RenderingHints.KEY_RENDERING,
                         RenderingHints.VALUE_RENDER_QUALITY);
-
-                int w = (int) (image.getWidth() * zoom);
-                int h = (int) (image.getHeight() * zoom);
-                g2.drawImage(image, offsetX, offsetY, w, h, null);
+                int w = (int) (image.getWidth() * zoom[0]);
+                int h = (int) (image.getHeight() * zoom[0]);
+                g2.drawImage(image, offset[0], offset[1], w, h, null);
             }
         };
         canvas.setBackground(Color.WHITE);
 
         // Zoom per Mausrad
         canvas.addMouseWheelListener(e -> {
-            double oldZoom = zoom;
-            if (e.getWheelRotation() < 0) {
-                zoom *= 1.15;   // Rein-Zoomen
-            } else {
-                zoom /= 1.15;   // Raus-Zoomen
-            }
-            zoom = Math.max(0.05, Math.min(zoom, 20.0));
-
-            // Zoom zentriert auf Mausposition
-            int mx = e.getX();
-            int my = e.getY();
-            offsetX = (int) (mx - (mx - offsetX) * (zoom / oldZoom));
-            offsetY = (int) (my - (my - offsetY) * (zoom / oldZoom));
-
+            double old = zoom[0];
+            zoom[0] *= (e.getWheelRotation() < 0) ? 1.15 : 1.0 / 1.15;
+            zoom[0] = Math.max(0.05, Math.min(zoom[0], 20.0));
+            int mx = e.getX(), my = e.getY();
+            offset[0] = (int) (mx - (mx - offset[0]) * (zoom[0] / old));
+            offset[1] = (int) (my - (my - offset[1]) * (zoom[0] / old));
             canvas.repaint();
         });
 
         // Pan per Drag
         canvas.addMouseListener(new MouseAdapter() {
-            @Override
             public void mousePressed(MouseEvent e) {
-                dragStart = e.getPoint();
+                dragStart[0] = e.getPoint();
                 canvas.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
             }
-
-            @Override
             public void mouseReleased(MouseEvent e) {
-                dragStart = null;
+                dragStart[0] = null;
                 canvas.setCursor(Cursor.getDefaultCursor());
             }
         });
         canvas.addMouseMotionListener(new MouseMotionAdapter() {
-            @Override
             public void mouseDragged(MouseEvent e) {
-                if (dragStart != null) {
-                    offsetX += e.getX() - dragStart.x;
-                    offsetY += e.getY() - dragStart.y;
-                    dragStart = e.getPoint();
+                if (dragStart[0] != null) {
+                    offset[0] += e.getX() - dragStart[0].x;
+                    offset[1] += e.getY() - dragStart[0].y;
+                    dragStart[0] = e.getPoint();
                     canvas.repaint();
                 }
             }
         });
 
-        // Fit-to-Window beim Start
-        addComponentListener(new ComponentAdapter() {
-            @Override
-            public void componentShown(ComponentEvent e) {
-                fitToWindow(canvas);
-            }
-
-            @Override
-            public void componentResized(ComponentEvent e) {
-                // Optional: bei Resize neu einpassen
-            }
-        });
-
         // Toolbar
-        JToolBar toolbar = new JToolBar();
-        toolbar.setFloatable(false);
+        JToolBar bar = new JToolBar();
+        bar.setFloatable(false);
 
         JButton fitBtn = new JButton("Fit");
-        fitBtn.setToolTipText("Bild einpassen");
-        fitBtn.addActionListener(e -> fitToWindow(canvas));
-        toolbar.add(fitBtn);
+        fitBtn.addActionListener(e -> fitToWindow(canvas, image, zoom, offset));
+        bar.add(fitBtn);
 
-        JButton zoomInBtn = new JButton("+");
-        zoomInBtn.setToolTipText("Zoom In");
-        zoomInBtn.addActionListener(e -> {
-            zoom *= 1.3;
-            canvas.repaint();
-        });
-        toolbar.add(zoomInBtn);
+        JButton inBtn = new JButton("+");
+        inBtn.addActionListener(e -> { zoom[0] *= 1.3; canvas.repaint(); });
+        bar.add(inBtn);
 
-        JButton zoomOutBtn = new JButton("−");
-        zoomOutBtn.setToolTipText("Zoom Out");
-        zoomOutBtn.addActionListener(e -> {
-            zoom /= 1.3;
-            zoom = Math.max(0.05, zoom);
-            canvas.repaint();
-        });
-        toolbar.add(zoomOutBtn);
+        JButton outBtn = new JButton("-");
+        outBtn.addActionListener(e -> { zoom[0] = Math.max(0.05, zoom[0] / 1.3); canvas.repaint(); });
+        bar.add(outBtn);
 
-        JButton oneToOneBtn = new JButton("1:1");
-        oneToOneBtn.setToolTipText("Originalgröße");
-        oneToOneBtn.addActionListener(e -> {
-            zoom = 1.0;
-            offsetX = 0;
-            offsetY = 0;
-            canvas.repaint();
-        });
-        toolbar.add(oneToOneBtn);
+        JButton oneBtn = new JButton("1:1");
+        oneBtn.addActionListener(e -> { zoom[0] = 1.0; offset[0] = 0; offset[1] = 0; canvas.repaint(); });
+        bar.add(oneBtn);
 
-        add(toolbar, BorderLayout.NORTH);
-        add(canvas, BorderLayout.CENTER);
+        wrapper.add(bar, BorderLayout.NORTH);
+        wrapper.add(canvas, BorderLayout.CENTER);
 
-        // Initiale Einpassung nach dem Sichtbarwerden
-        SwingUtilities.invokeLater(() -> fitToWindow(canvas));
+        // Fit nach Anzeige
+        SwingUtilities.invokeLater(() -> fitToWindow(canvas, image, zoom, offset));
+        return wrapper;
     }
 
-    private void fitToWindow(JComponent canvas) {
-        if (image == null) return;
-        int cw = canvas.getWidth();
-        int ch = canvas.getHeight();
+    private void fitToWindow(JComponent canvas, BufferedImage img, double[] zoom, int[] offset) {
+        int cw = canvas.getWidth(), ch = canvas.getHeight();
         if (cw <= 0 || ch <= 0) return;
-
-        double scaleX = (double) cw / image.getWidth();
-        double scaleY = (double) ch / image.getHeight();
-        zoom = Math.min(scaleX, scaleY) * 0.95; // 5% Padding
-
-        int w = (int) (image.getWidth() * zoom);
-        int h = (int) (image.getHeight() * zoom);
-        offsetX = (cw - w) / 2;
-        offsetY = (ch - h) / 2;
+        zoom[0] = Math.min((double) cw / img.getWidth(), (double) ch / img.getHeight()) * 0.95;
+        int w = (int) (img.getWidth() * zoom[0]);
+        int h = (int) (img.getHeight() * zoom[0]);
+        offset[0] = (cw - w) / 2;
+        offset[1] = (ch - h) / 2;
         canvas.repaint();
     }
 
     public static void main(String[] args) {
-        String diagram = String.join("\n",
+        Map<String, String> diagrams = new LinkedHashMap<>();
+
+        // Tab 1: Bunte, vollgestopfte KI-Mindmap
+        diagrams.put("KI Mindmap", String.join("\n",
+                "mindmap",
+                "  root((Kuenstliche Intelligenz))",
+                "    Machine Learning",
+                "      Supervised Learning",
+                "        Regression",
+                "        Klassifikation",
+                "        Random Forest",
+                "        SVM",
+                "      Unsupervised Learning",
+                "        Clustering",
+                "        K-Means",
+                "        Dimensionsreduktion",
+                "        PCA",
+                "      Reinforcement Learning",
+                "        Q-Learning",
+                "        Policy Gradient",
+                "        AlphaGo",
+                "    Deep Learning",
+                "      Neuronale Netze",
+                "        CNN",
+                "        RNN",
+                "        Transformer",
+                "      Frameworks",
+                "        TensorFlow",
+                "        PyTorch",
+                "        JAX",
+                "      Anwendungen",
+                "        Bilderkennung",
+                "        Sprachsynthese",
+                "        Autonomes Fahren",
+                "    NLP",
+                "      Chatbots",
+                "        ChatGPT",
+                "        Claude",
+                "        Gemini",
+                "      Aufgaben",
+                "        Uebersetzung",
+                "        Zusammenfassung",
+                "        Sentimentanalyse",
+                "      Modelle",
+                "        BERT",
+                "        GPT-4",
+                "        LLaMA",
+                "    Computer Vision",
+                "      Objekterkennung",
+                "        YOLO",
+                "        R-CNN",
+                "      Gesichtserkennung",
+                "      Bildgenerierung",
+                "        DALL-E",
+                "        Stable Diffusion",
+                "        Midjourney",
+                "    Robotik",
+                "      Industrieroboter",
+                "      Drohnen",
+                "      Humanoide Roboter",
+                "        Atlas",
+                "        Optimus",
+                "    Ethik und Gesellschaft",
+                "      Bias und Fairness",
+                "      Datenschutz",
+                "      Arbeitsmarkt",
+                "      Regulierung",
+                "        EU AI Act",
+                "        UNESCO Empfehlung"
+        ));
+
+        // Tab 2: Flowchart
+        diagrams.put("Flowchart", String.join("\n",
                 "graph TD",
                 "    A[Start] --> B{Entscheidung}",
                 "    B -->|Ja| C[Aktion 1]",
                 "    B -->|Nein| D[Aktion 2]",
                 "    C --> E[Ende]",
                 "    D --> E"
-        );
+        ));
 
-        SwingUtilities.invokeLater(() -> {
-            new MermaidViewer(diagram).setVisible(true);
-        });
+        // Tab 3: Sequenzdiagramm
+        diagrams.put("Sequenz", String.join("\n",
+                "sequenceDiagram",
+                "    participant Browser",
+                "    participant Server",
+                "    participant DB",
+                "    Browser->>Server: GET /api/users",
+                "    Server->>DB: SELECT * FROM users",
+                "    DB-->>Server: ResultSet",
+                "    Server-->>Browser: JSON Response",
+                "    Browser->>Server: POST /api/login",
+                "    Server->>DB: SELECT password WHERE user=?",
+                "    DB-->>Server: Hash",
+                "    Server-->>Browser: JWT Token"
+        ));
+
+        // Tab 4: Klassendiagramm
+        diagrams.put("Klassen", String.join("\n",
+                "classDiagram",
+                "    class Animal {",
+                "        +String name",
+                "        +int age",
+                "        +makeSound()",
+                "    }",
+                "    class Dog {",
+                "        +fetch()",
+                "    }",
+                "    class Cat {",
+                "        +purr()",
+                "    }",
+                "    Animal <|-- Dog",
+                "    Animal <|-- Cat"
+        ));
+
+        // Tab 5: Gantt
+        diagrams.put("Gantt", String.join("\n",
+                "gantt",
+                "    title Projektplan",
+                "    dateFormat YYYY-MM-DD",
+                "    section Design",
+                "        Wireframes      :a1, 2025-01-01, 14d",
+                "        Prototyp        :a2, after a1, 10d",
+                "    section Entwicklung",
+                "        Backend         :b1, after a2, 21d",
+                "        Frontend        :b2, after a2, 28d",
+                "    section Test",
+                "        Integration     :c1, after b2, 7d",
+                "        Release         :milestone, after c1, 0d"
+        ));
+
+        SwingUtilities.invokeLater(() ->
+            new MermaidViewer(diagrams).setVisible(true)
+        );
     }
 }
 
