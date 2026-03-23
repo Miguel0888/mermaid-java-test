@@ -1,6 +1,7 @@
 plugins {
     id 'java'
     id 'application'
+    id 'com.github.johnrengelman.shadow' version '7.1.2'
 }
 
 group = 'com.aresstack.test'
@@ -22,14 +23,47 @@ application {
     mainClassName = 'com.aresstack.test.MermaidViewer'
 }
 
-// "gradlew runConsole" für die Konsolen-Variante
+// ===== Run-Tasks =====
+
 task runConsole(type: JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.aresstack.test.Main'
 }
 
-// "gradlew runCoder" für den MermaidCoder
 task runCoder(type: JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.aresstack.test.MermaidCoder'
 }
+
+// ===== Fat-JARs via Shadow (mergt META-INF/services korrekt) =====
+
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
+def fatJarSpecs = [
+    [name: 'mermaid-console', main: 'com.aresstack.test.Main'],
+    [name: 'mermaid-viewer',  main: 'com.aresstack.test.MermaidViewer'],
+    [name: 'mermaid-coder',   main: 'com.aresstack.test.MermaidCoder'],
+]
+
+fatJarSpecs.each { spec ->
+    tasks.create("shadowJar-${spec.name}", ShadowJar) {
+        archiveBaseName.set(spec.name)
+        archiveVersion.set(project.version)
+        archiveClassifier.set('all')
+        mergeServiceFiles()          // META-INF/services korrekt zusammenfuehren
+
+        manifest {
+            attributes 'Main-Class': spec.main
+        }
+
+        from sourceSets.main.output
+        configurations = [project.configurations.runtimeClasspath]
+    }
+}
+
+task allFatJars {
+    description = 'Baut alle drei Fat-JARs'
+    group = 'build'
+    dependsOn fatJarSpecs.collect { "shadowJar-${it.name}" }
+}
+

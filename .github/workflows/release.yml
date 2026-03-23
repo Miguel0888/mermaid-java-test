@@ -1,0 +1,74 @@
+name: Build & Release Fat JARs
+
+on:
+  push:
+    tags:
+      - 'v*'          # Trigger bei Tags wie v0.1.0, v1.0.0-beta.1 etc.
+  workflow_dispatch:   # Manueller Trigger ueber GitHub UI
+
+permissions:
+  contents: write      # Noetig fuer das Erstellen von Releases
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '8'
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build all Fat JARs
+        run: ./gradlew allFatJars
+
+      - name: List built JARs
+        run: ls -lh build/libs/*.jar
+
+      # --- Release nur bei Tag-Push ---
+      - name: Determine version
+        if: startsWith(github.ref, 'refs/tags/')
+        id: version
+        run: echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.TAG }}
+          name: "Release ${{ steps.version.outputs.TAG }}"
+          body: |
+            ## mermaid-java-test ${{ steps.version.outputs.TAG }}
+
+            Drei ausfuehrbare Fat-JARs basierend auf [mermaid-java](https://central.sonatype.com/artifact/com.aresstack/mermaid-java):
+
+            | JAR | Beschreibung | Starten |
+            |-----|-------------|---------|
+            | `mermaid-console-*-all.jar` | Konsolen-Renderer (SVG auf stdout) | `java -jar mermaid-console-*-all.jar` |
+            | `mermaid-viewer-*-all.jar` | Swing-Viewer mit Tabs, Zoom & Pan | `java -jar mermaid-viewer-*-all.jar` |
+            | `mermaid-coder-*-all.jar` | Java-zu-Mermaid Live-Editor (RSyntaxTextArea) | `java -jar mermaid-coder-*-all.jar` |
+
+            > Voraussetzung: Java 8+
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.TAG, 'beta') || contains(steps.version.outputs.TAG, 'alpha') || contains(steps.version.outputs.TAG, 'rc') }}
+          files: |
+            build/libs/mermaid-console-*-all.jar
+            build/libs/mermaid-viewer-*-all.jar
+            build/libs/mermaid-coder-*-all.jar
+
+      # --- Artefakte auch ohne Tag (z.B. bei workflow_dispatch) ---
+      - name: Upload JARs as workflow artifacts
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: fat-jars
+          path: build/libs/*-all.jar
+          retention-days: 14
+
